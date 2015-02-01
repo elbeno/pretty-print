@@ -26,6 +26,10 @@ void foobar()
 {
 }
 
+void foobarbind(int i, int j)
+{
+}
+
 union U {};
 
 enum Quux
@@ -78,6 +82,9 @@ int main(int argc, char* argv[])
 
   cout << prettyprint([](){}) << endl; // <callable object>
   cout << prettyprint(foobar) << endl; // <function>
+
+  auto b = std::bind(&foobarbind, 1, placeholders::_1);
+  cout << prettyprint(b) << endl; // <callable object>
 
   return 0;
 }

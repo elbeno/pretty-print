@@ -19,20 +19,25 @@
 // * Enum values and enum class values are printed as ints.
 // * Objects with operator() that can implicitly convert to bool are output as
 //   <callable object> even though operator<< would work. An example is
-//   non-capturing lambdas.
+//   non-capturing lambdas, which can implicit convert to pointer-to-function
+//   and thus to bool.
 
 // -----------------------------------------------------------------------------
 // SFINAE member/functionality detection
-template <typename...>
-using void_t = void;
-
 #define SFINAE_DETECT(name, expr)                                       \
   template <typename T>                                                 \
   using name##_t = decltype(expr);                                      \
   template <typename T, typename = void>                                \
   struct has_##name : public std::false_type {};                        \
   template <typename T>                                                 \
-  struct has_##name<T, void_t<name##_t<T>>> : public std::true_type {};
+  struct has_##name<T, detail::void_t<name##_t<T>>> : public std::true_type {};
+
+namespace detail
+{
+
+// -----------------------------------------------------------------------------
+template <typename...>
+using void_t = void;
 
 // -----------------------------------------------------------------------------
 // Is the type iterable (has begin() and end())?
@@ -64,13 +69,18 @@ struct is_tuple_tag {};
 
 // -----------------------------------------------------------------------------
 // Is the type a callable of some kind?
-
 SFINAE_DETECT(call_operator, &T::operator())
 
 template <typename T>
 struct is_std_function : public std::false_type {};
 template <typename T>
 struct is_std_function<std::function<T>> : public std::true_type {};
+
+template<typename T>
+using is_callable = typename std::conditional<
+  has_call_operator<T>::value
+  || std::is_bind_expression<std::remove_reference_t<T>>::value,
+  std::true_type, std::false_type>::type;
 
 struct is_std_function_tag {};
 struct is_function_tag {};
@@ -83,8 +93,8 @@ SFINAE_DETECT(operator_output, std::cout << std::declval<T>())
 // Non-capturing lambdas (and some other callables) may implicitly convert to
 // bool, which will make operator<< work. We want to treat them as callables,
 // not outputtables.
-void bool_test(bool);
-SFINAE_DETECT(bool_conversion, bool_test(std::declval<T>()))
+void bool_conversion_test(bool);
+SFINAE_DETECT(bool_conversion, bool_conversion_test(std::declval<T>()))
 
 template<typename T>
 using is_outputtable = typename std::conditional<
@@ -96,15 +106,15 @@ struct is_outputtable_tag {};
 
 // -----------------------------------------------------------------------------
 // Is the type an enum or enum class?
-
 struct is_enum_tag {};
 
 // -----------------------------------------------------------------------------
 // Is the type something else we want to distinguish?
-
 struct is_union_tag {};
 struct is_class_tag {};
 struct is_nullptr_tag {};
+
+} // detail
 
 // -----------------------------------------------------------------------------
 template <typename T, typename TAG>
@@ -115,37 +125,37 @@ struct stringifier_select;
 template <typename T>
 using stringifier_tag = std::conditional_t<
   std::is_null_pointer<T>::value,
-  is_nullptr_tag,
+  detail::is_nullptr_tag,
   std::conditional_t<
-    is_std_function<std::remove_reference_t<T>>::value,
-    is_std_function_tag,
+    detail::is_std_function<std::remove_reference_t<T>>::value,
+    detail::is_std_function_tag,
     std::conditional_t<
       std::is_function<std::remove_reference_t<T>>::value,
-      is_function_tag,
+      detail::is_function_tag,
       std::conditional_t<
         std::is_enum<T>::value,
-        is_enum_tag,
+        detail::is_enum_tag,
         std::conditional_t<
-          is_outputtable<T>::value,
-          is_outputtable_tag,
+          detail::is_outputtable<T>::value,
+          detail::is_outputtable_tag,
           std::conditional_t<
-            has_call_operator<T>::value,
-            is_callable_tag,
+            detail::is_callable<T>::value,
+            detail::is_callable_tag,
             std::conditional_t<
-              is_iterable<T>::value,
-              is_iterable_tag,
+              detail::is_iterable<T>::value,
+              detail::is_iterable_tag,
               std::conditional_t<
-                is_pair<T>::value,
-                is_pair_tag,
+                detail::is_pair<T>::value,
+                detail::is_pair_tag,
                 std::conditional_t<
-                  is_tuple<T>::value,
-                  is_tuple_tag,
+                  detail::is_tuple<T>::value,
+                  detail::is_tuple_tag,
                   std::conditional_t<
                     std::is_union<T>::value,
-                    is_union_tag,
+                    detail::is_union_tag,
                     std::conditional_t<
                       std::is_class<T>::value,
-                      is_class_tag,
+                      detail::is_class_tag,
                       void>>>>>>>>>>>;
 
 template <typename T>
@@ -179,7 +189,7 @@ struct stringifier_select
 // -----------------------------------------------------------------------------
 // If T has an output operator, use it
 template <typename T>
-struct stringifier_select<T, is_outputtable_tag>
+struct stringifier_select<T, detail::is_outputtable_tag>
 {
   explicit stringifier_select(const T& t) : m_t(t) {}
 
@@ -194,7 +204,7 @@ struct stringifier_select<T, is_outputtable_tag>
 // -----------------------------------------------------------------------------
 // Specialize for bool: do boolalpha explicitly so as not to affect stream state
 template <>
-struct stringifier_select<bool, is_outputtable_tag>
+struct stringifier_select<bool, detail::is_outputtable_tag>
 {
   explicit stringifier_select(bool t) : m_t(t) {}
 
@@ -229,7 +239,7 @@ struct iterable_separator
 };
 
 template <typename T>
-struct stringifier_select<T, is_iterable_tag>
+struct stringifier_select<T, detail::is_iterable_tag>
 {
   explicit stringifier_select(const T& t) : m_t(t) {}
 
@@ -264,27 +274,27 @@ struct stringifier_select<T, is_iterable_tag>
 // -----------------------------------------------------------------------------
 // If T is a function, show that
 
-SS_SIMPLE_SPEC(is_callable_tag, <callable object>)
-SS_SIMPLE_SPEC(is_function_tag, <function>)
-SS_SIMPLE_SPEC(is_std_function_tag, <std::function>)
+SS_SIMPLE_SPEC(detail::is_callable_tag, <callable object>)
+SS_SIMPLE_SPEC(detail::is_function_tag, <function>)
+SS_SIMPLE_SPEC(detail::is_std_function_tag, <std::function>)
 
 // -----------------------------------------------------------------------------
 // If T is a regular object, show that
 
-SS_SIMPLE_SPEC(is_class_tag, <object>)
-SS_SIMPLE_SPEC(is_union_tag, <union>)
+SS_SIMPLE_SPEC(detail::is_class_tag, <object>)
+SS_SIMPLE_SPEC(detail::is_union_tag, <union>)
 
 // -----------------------------------------------------------------------------
 // If T is a nullptr, show that
 
-SS_SIMPLE_SPEC(is_nullptr_tag, nullptr)
+SS_SIMPLE_SPEC(detail::is_nullptr_tag, nullptr)
 
 // -----------------------------------------------------------------------------
 // If T is an enum or enum class, show that
 template <typename T>
-struct stringifier_select<T, is_enum_tag>
+struct stringifier_select<T, detail::is_enum_tag>
 {
-  explicit stringifier_select(const T t) : m_t(t) {}
+  explicit stringifier_select(T t) : m_t(t) {}
 
   std::ostream& output(std::ostream& s) const
   {
@@ -297,7 +307,7 @@ struct stringifier_select<T, is_enum_tag>
 // -----------------------------------------------------------------------------
 // If T is a pair, show that
 template <typename T>
-struct stringifier_select<T, is_pair_tag>
+struct stringifier_select<T, detail::is_pair_tag>
 {
   explicit stringifier_select(const T& t) : m_t(t) {}
 
@@ -312,6 +322,9 @@ struct stringifier_select<T, is_pair_tag>
 
 // -----------------------------------------------------------------------------
 // If t is a tuple, show that
+namespace detail
+{
+
 template <typename F, typename...Ts, std::size_t...Is>
 inline void for_each_in_tuple(const std::tuple<Ts...>& t, F f,
                               std::index_sequence<Is...>)
@@ -325,18 +338,20 @@ inline void for_each_in_tuple(const std::tuple<Ts...>& t, F f)
   for_each_in_tuple(t, f, std::make_index_sequence<sizeof...(Ts)>());
 }
 
+} // detail
+
 template <typename T>
-struct stringifier_select<T, is_tuple_tag>
+struct stringifier_select<T, detail::is_tuple_tag>
 {
   explicit stringifier_select(const T& t) : m_t(t) {}
 
   std::ostream& output(std::ostream& s) const
   {
     s << '(';
-    for_each_in_tuple(m_t,
-                      [&s] (auto& e, size_t i)
-                      { if (i > 0) s << ',';
-                        s << prettyprint(e); });
+    detail::for_each_in_tuple(m_t,
+                              [&s] (auto& e, size_t i)
+                              { if (i > 0) s << ',';
+                                s << prettyprint(e); });
     return s << ')';
   }
 
