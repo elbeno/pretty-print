@@ -12,6 +12,16 @@ struct Bar
   void operator()() {};
 };
 
+struct Baz
+{
+  void operator()() {};
+};
+
+ostream& operator<<(ostream& s, const Baz&)
+{
+  return s << "Baz";
+}
+
 void foobar()
 {
 }
@@ -61,6 +71,7 @@ int main(int argc, char* argv[])
   cout << prettyprint(make_pair(1,2)) << endl; // (1,2)
   cout << prettyprint(make_tuple("Hello", 42)) << endl; // (Hello, 42)
   cout << prettyprint(Bar()) << endl; // <callable object>
+  cout << prettyprint(Baz()) << endl; // Baz
 
   std::function<void()> f = [](){};
   cout << prettyprint(f) << endl; // <std::function>

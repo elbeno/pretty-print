@@ -17,6 +17,9 @@
 //   openers, closers and separators. (The default is { , })
 // * Pairs are printed (like,this) as are tuples.
 // * Enum values and enum class values are printed as ints.
+// * Objects with operator() that can implicitly convert to bool are output as
+//   <callable object> even though operator<< would work. An example is
+//   non-capturing lambdas.
 
 // -----------------------------------------------------------------------------
 // SFINAE member/functionality detection
@@ -30,12 +33,6 @@ using void_t = void;
   struct has_##name : public std::false_type {};                        \
   template <typename T>                                                 \
   struct has_##name<T, void_t<name##_t<T>>> : public std::true_type {};
-
-// -----------------------------------------------------------------------------
-// Does the type support operator<< ?
-SFINAE_DETECT(operator_output, std::cout << std::declval<T>())
-
-struct has_operator_output_tag {};
 
 // -----------------------------------------------------------------------------
 // Is the type iterable (has begin() and end())?
@@ -80,6 +77,24 @@ struct is_function_tag {};
 struct is_callable_tag {};
 
 // -----------------------------------------------------------------------------
+// Does the type support operator<< ?
+SFINAE_DETECT(operator_output, std::cout << std::declval<T>())
+
+// Non-capturing lambdas (and some other callables) may implicitly convert to
+// bool, which will make operator<< work. We want to treat them as callables,
+// not outputtables.
+void bool_test(bool);
+SFINAE_DETECT(bool_conversion, bool_test(std::declval<T>()))
+
+template<typename T>
+using is_outputtable = typename std::conditional<
+  has_operator_output<T>::value &&
+  !(has_call_operator<T>::value && has_bool_conversion<T>::value),
+  std::true_type, std::false_type>::type;
+
+struct is_outputtable_tag {};
+
+// -----------------------------------------------------------------------------
 // Is the type an enum or enum class?
 
 struct is_enum_tag {};
@@ -95,10 +110,7 @@ struct is_nullptr_tag {};
 template <typename T, typename TAG>
 struct stringifier_select;
 
-// The way we want to treat a type, in preference order. Objects with operator()
-// are tricky because evidently lambdas can be used with operator<<, but we want
-// them to show as a callable object. This means if you have an object with
-// operator() and operator<< defined, the operator<< won't be used.
+// The way we want to treat a type, in preference order.
 
 template <typename T>
 using stringifier_tag = std::conditional_t<
@@ -111,14 +123,14 @@ using stringifier_tag = std::conditional_t<
       std::is_function<std::remove_reference_t<T>>::value,
       is_function_tag,
       std::conditional_t<
-        has_call_operator<T>::value,
-        is_callable_tag,
+        std::is_enum<T>::value,
+        is_enum_tag,
         std::conditional_t<
-          std::is_enum<T>::value,
-          is_enum_tag,
+          is_outputtable<T>::value,
+          is_outputtable_tag,
           std::conditional_t<
-            has_operator_output<T>::value,
-            has_operator_output_tag,
+            has_call_operator<T>::value,
+            is_callable_tag,
             std::conditional_t<
               is_iterable<T>::value,
               is_iterable_tag,
@@ -140,13 +152,13 @@ template <typename T>
 using stringifier = stringifier_select<T, stringifier_tag<T>>;
 
 template <typename T>
-std::ostream& operator<<(std::ostream& s, const stringifier<T>& t)
+inline std::ostream& operator<<(std::ostream& s, const stringifier<T>& t)
 {
   return t.output(s);
 }
 
 template <typename T>
-stringifier<T> prettyprint(T&& t)
+inline stringifier<T> prettyprint(T&& t)
 {
   return stringifier<T>(std::forward<T>(t));
 }
@@ -167,7 +179,7 @@ struct stringifier_select
 // -----------------------------------------------------------------------------
 // If T has an output operator, use it
 template <typename T>
-struct stringifier_select<T, has_operator_output_tag>
+struct stringifier_select<T, is_outputtable_tag>
 {
   explicit stringifier_select(const T& t) : m_t(t) {}
 
@@ -182,7 +194,7 @@ struct stringifier_select<T, has_operator_output_tag>
 // -----------------------------------------------------------------------------
 // Specialize for bool: do boolalpha explicitly so as not to affect stream state
 template <>
-struct stringifier_select<bool, has_operator_output_tag>
+struct stringifier_select<bool, is_outputtable_tag>
 {
   explicit stringifier_select(bool t) : m_t(t) {}
 
@@ -301,14 +313,14 @@ struct stringifier_select<T, is_pair_tag>
 // -----------------------------------------------------------------------------
 // If t is a tuple, show that
 template <typename F, typename...Ts, std::size_t...Is>
-void for_each_in_tuple(const std::tuple<Ts...>& t, F f,
-                       std::index_sequence<Is...>)
+inline void for_each_in_tuple(const std::tuple<Ts...>& t, F f,
+                              std::index_sequence<Is...>)
 {
   (void)(int[]) { 0, (f(std::get<Is>(t), Is), 0)... };
 }
 
 template <typename F, typename...Ts>
-void for_each_in_tuple(const std::tuple<Ts...>& t, F f)
+inline void for_each_in_tuple(const std::tuple<Ts...>& t, F f)
 {
   for_each_in_tuple(t, f, std::make_index_sequence<sizeof...(Ts)>());
 }
