@@ -3,10 +3,9 @@
 #include <algorithm>
 #include <functional>
 #include <iostream>
+#include <iterator>
 #include <type_traits>
 #include <utility>
-
-#include <cassert>
 
 // -----------------------------------------------------------------------------
 // A pretty-printer for (pretty much) any type.
@@ -341,6 +340,24 @@ struct stringifier_select<const char[N], detail::is_outputtable_tag>
 
 // -----------------------------------------------------------------------------
 // Specialize for arrays
+namespace detail
+{
+  template <typename T>
+  std::ostream& output_iterable(std::ostream& s, const T& t)
+  {
+    s << iterable_opener<T>()(t);
+    auto b = std::begin(t);
+    auto e = std::end(t);
+    if (b != e)
+      s << prettyprint(*b);
+    std::for_each(++b, e,
+                  [&s, &t] (auto& e)
+                  { s << iterable_separator<T>()(t)
+                      << prettyprint(e); });
+    return s << iterable_closer<T>()(t);
+  }
+}
+
 template <typename T, size_t N>
 struct stringifier_select<T[N], detail::is_outputtable_tag>
 {
@@ -349,16 +366,7 @@ struct stringifier_select<T[N], detail::is_outputtable_tag>
 
   std::ostream& output(std::ostream& s) const
   {
-    s << iterable_opener<T[N]>()(m_t);
-    const T* b = m_t;
-    const T* e = &m_t[N];
-    if (N > 0)
-      s << prettyprint(*b);
-    std::for_each(++b, e,
-                  [&s, this] (auto& e)
-                  { s << iterable_separator<T[N]>()(m_t)
-                      << prettyprint(e); });
-    return s << iterable_closer<T[N]>()(m_t);
+    return detail::output_iterable<T[N]>(s, m_t);
   }
 
   const S& m_t;
@@ -388,16 +396,7 @@ struct stringifier_select<T, detail::is_iterable_tag>
 
   std::ostream& output(std::ostream& s) const
   {
-    s << iterable_opener<decay_t<T>>()(m_t);
-    auto b = m_t.begin();
-    auto e = m_t.end();
-    if (e != b)
-      s << prettyprint(*b);
-    std::for_each(++b, e,
-                  [&s, this] (auto& e)
-                  { s << iterable_separator<decay_t<T>>()(m_t)
-                      << prettyprint(e); });
-    return s << iterable_closer<decay_t<T>>()(m_t);
+    return detail::output_iterable<decay_t<T>>(s, m_t);
   }
 
   const T& m_t;
