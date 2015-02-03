@@ -17,14 +17,22 @@
 //   characterize it anyway using type_traits and print something like
 //   <union>.
 // * Containers (iterable, with begin() and end()) get printed with customizable
-//   openers, closers and separators. (The default is { , })
-// * Pairs are printed (like,this), as are tuples.
-// * Enum values and enum class values are printed as ints.
+//   openers, closers and separators. The default is {}, with [] for vectors
+//   and arrays, and comma for a separator.
+// * Pairs are printed (like,this), as are tuples. This is also customizable in
+//   the same way as containers.
+// * Strings and char arrays are printed with surrounding quotes. Again,
+//   customizable (if for example, you want single quotes).
+// * Enum values and enum class values are printed as integral values.
 // * Objects with operator() that can implicitly convert to bool are output as
 //   <callable> even though operator<< would work. An example is non-capturing
 //   lambdas, which can implicit convert to pointer-to-function and thus to
 //   bool.
-// * Strings and char arrays are printed with surrounding quotes.
+//
+// To use, do something like:
+// cout << prettyprint(x);
+// or:
+// cout << prettyprint(x, formatter);
 
 // -----------------------------------------------------------------------------
 // SFINAE member/functionality detection
