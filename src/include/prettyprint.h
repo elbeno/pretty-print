@@ -4,8 +4,10 @@
 #include <functional>
 #include <iostream>
 #include <iterator>
+#include <string>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 // -----------------------------------------------------------------------------
 // A pretty-printer for (pretty much) any type.
@@ -158,7 +160,7 @@ namespace detail
 } // detail
 
 // -----------------------------------------------------------------------------
-template <typename T, typename TAG>
+template <typename T, typename F, typename TAG>
 struct stringifier_select;
 
 // The way we want to treat a type, in preference order.
@@ -186,52 +188,98 @@ using stringifier_tag = std::conditional_t<
               detail::is_unprintable_tag,
               void>>>>>>>;
 
-template <typename T>
-using stringifier = stringifier_select<T, stringifier_tag<T>>;
+template <typename T, typename F>
+using stringifier = stringifier_select<T, F, stringifier_tag<T>>;
 
-template <typename T>
-inline std::ostream& operator<<(std::ostream& s, const stringifier<T>& t)
+template <typename T, typename F>
+inline std::ostream& operator<<(std::ostream& s, const stringifier<T, F>& t)
 {
   return t.output(s);
 }
 
 // -----------------------------------------------------------------------------
+// Customization points for printing containers, pairs, tuples, strings
+struct default_formatter
+{
+  // default separator, opener and closer
+  template <typename T>
+  constexpr const char* separator(const T&) const
+  { return ","; }
+
+  template <typename T>
+  constexpr const char* opener(const T&) const
+  { return "{"; }
+
+  template <typename T>
+  constexpr const char* closer(const T&) const
+  { return "}"; }
+
+  // use [] for vectors and arrays
+  template <typename T>
+  constexpr const char* opener(const std::vector<T>&) const
+  { return "["; }
+
+  template <typename T>
+  constexpr const char* closer(const std::vector<T>&) const
+  { return "]"; }
+
+  template <typename T, size_t N>
+  constexpr const char* opener(const T(&)[N]) const
+  { return "["; }
+
+  template <typename T, size_t N>
+  constexpr const char* closer(const T(&)[N]) const
+  { return "]"; }
+
+  // use () for pairs and tuples
+  template <typename T, typename U>
+  constexpr const char* opener(const std::pair<T, U>&) const
+  { return "("; }
+
+  template <typename T, typename U>
+  constexpr const char* closer(const std::pair<T, U>&) const
+  { return ")"; }
+
+  template <typename... Ts>
+  constexpr const char* opener(const std::tuple<Ts...>&) const
+  { return "("; }
+
+  template <typename... Ts>
+  constexpr const char* closer(const std::tuple<Ts...>&) const
+  { return ")"; }
+
+  // use double quotes for strings
+  constexpr const char* opener(const std::string&) const
+  { return "\""; }
+
+  constexpr const char* closer(const std::string&) const
+  { return "\""; }
+};
+
+// -----------------------------------------------------------------------------
 // The function that drives it all
 template <typename T>
-inline stringifier<std::remove_reference_t<T>> prettyprint(T&& t)
+inline stringifier<std::remove_reference_t<T>, default_formatter>
+prettyprint(T&& t)
 {
-  return stringifier<std::remove_reference_t<T>>(std::forward<T>(t));
+  return stringifier<std::remove_reference_t<T>, default_formatter>(
+      std::forward<T>(t), default_formatter());
+}
+
+template <typename T, typename F>
+inline stringifier<std::remove_reference_t<T>, F>
+prettyprint(T&& t, F&& f)
+{
+  return stringifier<std::remove_reference_t<T>, F>(
+      std::forward<T>(t), std::forward<F>(f));
 }
 
 // -----------------------------------------------------------------------------
-// Customization points for printing iterable things (including arrays)
-template <typename T>
-struct iterable_opener
-{
-  constexpr const char* operator()(const T&) const
-  { return "{"; }
-};
-
-template <typename T>
-struct iterable_closer
-{
-  constexpr const char* operator()(const T&) const
-  { return "}"; }
-};
-
-template <typename T>
-struct iterable_separator
-{
-  constexpr const char* operator()(const T&) const
-  { return ","; }
-};
-
-// -----------------------------------------------------------------------------
 // Default: not stringifiable
-template <typename T, typename TAG>
+template <typename T, typename F, typename TAG>
 struct stringifier_select
 {
-  explicit stringifier_select(const T&) {}
+  explicit stringifier_select(const T&, F) {}
 
   std::ostream& output(std::ostream& s) const
   {
@@ -241,10 +289,11 @@ struct stringifier_select
 
 // -----------------------------------------------------------------------------
 // Specialization for outputtable
-template <typename T>
-struct stringifier_select<T, detail::is_outputtable_tag>
+template <typename T, typename F>
+struct stringifier_select<T, F, detail::is_outputtable_tag>
 {
-  explicit stringifier_select(const T& t) : m_t(t) {}
+  explicit stringifier_select(const T& t, F)
+    : m_t(t) {}
 
   std::ostream& output(std::ostream& s) const
   {
@@ -256,85 +305,104 @@ struct stringifier_select<T, detail::is_outputtable_tag>
 
 // -----------------------------------------------------------------------------
 // Specialize for string
-template <typename C, typename T, typename A>
-struct stringifier_select<std::basic_string<C,T,A>, detail::is_outputtable_tag>
+template <typename C, typename T, typename A, typename F>
+struct stringifier_select<std::basic_string<C,T,A>, F, detail::is_outputtable_tag>
 {
   using S = std::basic_string<C,T,A>;
-  explicit stringifier_select(const S& t) : m_t(t) {}
+  explicit stringifier_select(const S& t, const F& f)
+    : m_t(t)
+    , m_f(f)
+  {}
 
   std::ostream& output(std::ostream& s) const
   {
-    return s << C('\"') << m_t << C('\"');
+    return s << m_f.opener(std::string())
+             << m_t
+             << m_f.closer(std::string());
   }
 
   const S& m_t;
+  const F& m_f;
 };
 
 // -----------------------------------------------------------------------------
 // Specialize for char* pointer-to-const and const-pointer varieties
-template <>
-struct stringifier_select<char*, detail::is_outputtable_tag>
+template <typename F>
+struct stringifier_select<char*, F, detail::is_outputtable_tag>
 {
-  explicit stringifier_select(const char* const t) : m_t(t) {}
+  explicit stringifier_select(const char* const t, const F& f)
+    : m_t(t)
+    , m_f(f)
+  {}
 
   std::ostream& output(std::ostream& s) const
   {
-    return s << '\"' << m_t << '\"';
+    return s << m_f.opener(std::string())
+             << m_t
+             << m_f.closer(std::string());
   }
 
   const char* const m_t;
+  const F& m_f;
 };
 
-template <>
-struct stringifier_select<char* const, detail::is_outputtable_tag>
-  : public stringifier_select<char*, detail::is_outputtable_tag>
+template <typename F>
+struct stringifier_select<char* const, F, detail::is_outputtable_tag>
+  : public stringifier_select<char*, F, detail::is_outputtable_tag>
 {
-  explicit stringifier_select(char* const t)
-    : stringifier_select<char*, detail::is_outputtable_tag>(t)
+  explicit stringifier_select(char* const t, const F& f)
+    : stringifier_select<char*, F, detail::is_outputtable_tag>(t, f)
   {}
 };
 
-template <>
-struct stringifier_select<const char*, detail::is_outputtable_tag>
-  : public stringifier_select<char*, detail::is_outputtable_tag>
+template <typename F>
+struct stringifier_select<const char*, F, detail::is_outputtable_tag>
+  : public stringifier_select<char*, F, detail::is_outputtable_tag>
 {
-  explicit stringifier_select(const char* t)
-    : stringifier_select<char*, detail::is_outputtable_tag>(t)
+  explicit stringifier_select(const char* t, const F& f)
+    : stringifier_select<char*, F, detail::is_outputtable_tag>(t, f)
   {}
 };
 
-template <>
-struct stringifier_select<const char* const, detail::is_outputtable_tag>
-  : public stringifier_select<char*, detail::is_outputtable_tag>
+template <typename F>
+struct stringifier_select<const char* const, F, detail::is_outputtable_tag>
+  : public stringifier_select<char*, F, detail::is_outputtable_tag>
 {
-  explicit stringifier_select(const char* const t)
-    : stringifier_select<char*, detail::is_outputtable_tag>(t)
+  explicit stringifier_select(const char* const t, const F& f)
+    : stringifier_select<char*, F, detail::is_outputtable_tag>(t, f)
   {}
 };
 
 // -----------------------------------------------------------------------------
 // Specialize for const char[] and char[]
-template <size_t N>
-struct stringifier_select<char[N], detail::is_outputtable_tag>
+template <size_t N, typename F>
+struct stringifier_select<char[N], F, detail::is_outputtable_tag>
 {
   using S = char[N];
-  explicit stringifier_select(const S& t) : m_t(t) {}
+  explicit stringifier_select(const S& t, const F& f)
+    : m_t(t)
+    , m_f(f)
+  {}
 
   std::ostream& output(std::ostream& s) const
   {
-    return s << '\"' << m_t << '\"';
+    return s << m_f.opener(std::string())
+             << m_t
+             << m_f.closer(std::string());
   }
 
   const S& m_t;
+  const F& m_f;
 };
 
-template <size_t N>
-struct stringifier_select<const char[N], detail::is_outputtable_tag>
-  : public stringifier_select<char[N], detail::is_outputtable_tag>
+template <size_t N, typename F>
+struct stringifier_select<const char[N], F, detail::is_outputtable_tag>
+  : public stringifier_select<char[N], F, detail::is_outputtable_tag>
 {
-  using S = typename stringifier_select<char[N], detail::is_outputtable_tag>::S;
-  explicit stringifier_select(const S& t)
-    : stringifier_select<char[N], detail::is_outputtable_tag>(t)
+  using S = typename stringifier_select<char[N], F,
+                                        detail::is_outputtable_tag>::S;
+  explicit stringifier_select(const S& t, const F& f)
+    : stringifier_select<char[N], F, detail::is_outputtable_tag>(t, f)
   {}
 };
 
@@ -342,42 +410,49 @@ struct stringifier_select<const char[N], detail::is_outputtable_tag>
 // Specialize for arrays
 namespace detail
 {
-  template <typename T>
-  std::ostream& output_iterable(std::ostream& s, const T& t)
+  template <typename T, typename F>
+  std::ostream& output_iterable(std::ostream& s,
+                                const T& t,
+                                const F& f)
   {
-    s << iterable_opener<T>()(t);
+    s << f.opener(t);
     auto b = std::begin(t);
     auto e = std::end(t);
     if (b != e)
       s << prettyprint(*b);
     std::for_each(++b, e,
-                  [&s, &t] (auto& e)
-                  { s << iterable_separator<T>()(t)
+                  [&s, &t, &f] (auto& e)
+                  { s << f.separator(t)
                       << prettyprint(e); });
-    return s << iterable_closer<T>()(t);
+    return s << f.closer(t);
   }
 }
 
-template <typename T, size_t N>
-struct stringifier_select<T[N], detail::is_outputtable_tag>
+template <typename T, size_t N, typename F>
+struct stringifier_select<T[N], F, detail::is_outputtable_tag>
 {
   using S = T[N];
-  explicit stringifier_select(const S& t) : m_t(t) {}
+  explicit stringifier_select(const S& t, const F& f)
+    : m_t(t)
+    , m_f(f)
+  {}
 
   std::ostream& output(std::ostream& s) const
   {
-    return detail::output_iterable<T[N]>(s, m_t);
+    return detail::output_iterable<S, F>(s, m_t, m_f);
   }
 
   const S& m_t;
+  const F& m_f;
 };
 
 // -----------------------------------------------------------------------------
 // Specialize for bool: do boolalpha explicitly so as not to affect stream state
-template <>
-struct stringifier_select<bool, detail::is_outputtable_tag>
+template <typename F>
+struct stringifier_select<bool, F, detail::is_outputtable_tag>
 {
-  explicit stringifier_select(bool t) : m_t(t) {}
+  explicit stringifier_select(bool t, F)
+    : m_t(t) {}
 
   std::ostream& output(std::ostream& s) const
   {
@@ -389,25 +464,29 @@ struct stringifier_select<bool, detail::is_outputtable_tag>
 
 // -----------------------------------------------------------------------------
 // Specialize for iterable, with customization of opener/closer/separator
-template <typename T>
-struct stringifier_select<T, detail::is_iterable_tag>
+template <typename T, typename F>
+struct stringifier_select<T, F, detail::is_iterable_tag>
 {
-  explicit stringifier_select(const T& t) : m_t(t) {}
+  explicit stringifier_select(const T& t, const F& f)
+    : m_t(t)
+    , m_f(f)
+  {}
 
   std::ostream& output(std::ostream& s) const
   {
-    return detail::output_iterable<decay_t<T>>(s, m_t);
+    return detail::output_iterable<decay_t<T>, F>(s, m_t, m_f);
   }
 
   const T& m_t;
+  const F& m_f;
 };
 
 // -----------------------------------------------------------------------------
 // Specialization for callable object
-template <typename T>
-struct stringifier_select<T, detail::is_callable_tag>
+template <typename T, typename F>
+struct stringifier_select<T, F, detail::is_callable_tag>
 {
-  explicit stringifier_select(T) {}
+  explicit stringifier_select(T, F) {}
   std::ostream& output(std::ostream& s) const
   {
     return s << "<callable "
@@ -418,10 +497,11 @@ struct stringifier_select<T, detail::is_callable_tag>
 
 // -----------------------------------------------------------------------------
 // Specialization for unprintable object
-template <typename T>
-struct stringifier_select<T, detail::is_unprintable_tag>
+template <typename T, typename F>
+struct stringifier_select<T, F, detail::is_unprintable_tag>
 {
-  explicit stringifier_select(T) {}
+  explicit stringifier_select(T, F) {}
+
   std::ostream& output(std::ostream& s) const
   {
     return s << detail::unprintable_type<T>();
@@ -430,10 +510,12 @@ struct stringifier_select<T, detail::is_unprintable_tag>
 
 // -----------------------------------------------------------------------------
 // Specialization for enum
-template <typename T>
-struct stringifier_select<T, detail::is_enum_tag>
+template <typename T, typename F>
+struct stringifier_select<T, F, detail::is_enum_tag>
 {
-  explicit stringifier_select(T t) : m_t(t) {}
+  explicit stringifier_select(T t, F)
+    : m_t(t)
+  {}
 
   std::ostream& output(std::ostream& s) const
   {
@@ -445,18 +527,25 @@ struct stringifier_select<T, detail::is_enum_tag>
 
 // -----------------------------------------------------------------------------
 // Specialization for pair
-template <typename T>
-struct stringifier_select<T, detail::is_pair_tag>
+template <typename T, typename F>
+struct stringifier_select<T, F, detail::is_pair_tag>
 {
-  explicit stringifier_select(const T& t) : m_t(t) {}
+  explicit stringifier_select(const T& t, const F& f)
+    : m_t(t)
+    , m_f(f)
+  {}
 
   std::ostream& output(std::ostream& s) const
   {
-    return s << '(' << prettyprint(m_t.first)
-             << ',' << prettyprint(m_t.second) << ')';
+    return s << m_f.opener(m_t)
+             << prettyprint(m_t.first)
+             << m_f.separator(m_t)
+             << prettyprint(m_t.second)
+             << m_f.closer(m_t);
   }
 
   const T& m_t;
+  const F& m_f;
 };
 
 // -----------------------------------------------------------------------------
@@ -477,22 +566,26 @@ namespace detail
   }
 } // detail
 
-template <typename T>
-struct stringifier_select<T, detail::is_tuple_tag>
+template <typename T, typename F>
+struct stringifier_select<T, F, detail::is_tuple_tag>
 {
-  explicit stringifier_select(const T& t) : m_t(t) {}
+  explicit stringifier_select(const T& t, const F& f)
+    : m_t(t)
+    , m_f(f)
+  {}
 
   std::ostream& output(std::ostream& s) const
   {
-    s << '(';
+    s << m_f.opener(m_t);
     detail::for_each_in_tuple(m_t,
-                              [&s] (auto& e, size_t i)
-                              { if (i > 0) s << ',';
+                              [&s, this] (auto& e, size_t i)
+                              { if (i > 0) s << m_f.separator(m_t);
                                 s << prettyprint(e); });
-    return s << ')';
+    return s << m_f.closer(m_t);
   }
 
   const T& m_t;
+  const F& m_f;
 };
 
 #undef SFINAE_DETECT

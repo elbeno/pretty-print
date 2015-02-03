@@ -10,12 +10,13 @@ struct Foo {};
 
 struct Bar
 {
-  void operator()() {};
+  void operator()() {}
 };
 
 struct Baz
 {
-  void operator()() {};
+  void foo() {}
+  void operator()() {}
 };
 
 ostream& operator<<(ostream& s, const Baz&)
@@ -47,17 +48,15 @@ enum class Garply
   BAZ
 };
 
-template <typename T>
-struct iterable_opener<deque<T>>
+struct deque_formatter : public default_formatter
 {
-  constexpr const char* operator()(const deque<T>&) const
+  // use [] for deques
+  template <typename T>
+  constexpr const char* opener(const deque<T>&) const
   { return ">"; }
-};
 
-template <typename T>
-struct iterable_closer<deque<T>>
-{
-  constexpr const char* operator()(const deque<T>&) const
+  template <typename T>
+  constexpr const char* closer(const deque<T>&) const
   { return ">"; }
 };
 
@@ -75,7 +74,8 @@ int main(int argc, char* argv[])
   vector<int> v{1,2,3};
   cout << prettyprint(v) << endl; // {1,2,3}
   deque<int> d{1,2,3};
-  cout << prettyprint(d) << endl; // >1,2,3>
+  cout << prettyprint(d, deque_formatter()) << endl; // >1,2,3>
+  cout << prettyprint(d) << endl; // {1,2,3}
 
   cout << prettyprint(true) << endl; // true
   cout << prettyprint(BAR) << endl; // 1
