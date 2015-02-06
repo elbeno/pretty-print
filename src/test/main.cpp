@@ -1,3 +1,4 @@
+#include <array>
 #include <deque>
 #include <iostream>
 #include <string>
@@ -64,15 +65,19 @@ int main(int argc, char* argv[])
 {
   const int x0[3] = {1,2,3};
   int x1[3] = {1,2,3};
-  int x2[] = {1,2,3};
-  int* x3 = x2;
-  cout << prettyprint(x0) << endl; // {1,2,3}
-  cout << prettyprint(x1) << endl; // {1,2,3}
-  cout << prettyprint(x2) << endl; // {1,2,3}
-  cout << prettyprint(x3) << endl; // some pointer
+  int x2[] = {};
+  int x3[] = {1,2,3};
+  int* x4 = x3;
+  cout << prettyprint(x0) << endl; // [1,2,3]
+  cout << prettyprint(x1) << endl; // [1,2,3]
+  cout << prettyprint(x2) << endl; // some pointer
+  cout << prettyprint(x3) << endl; // [1,2,3]
+  cout << prettyprint(x4) << endl; // some pointer
 
+  array<int, 3> a{1,2,3};
+  cout << prettyprint(a) << endl; // [1,2,3]
   vector<int> v{1,2,3};
-  cout << prettyprint(v) << endl; // {1,2,3}
+  cout << prettyprint(v) << endl; // [1,2,3]
   deque<int> d{1,2,3};
   cout << prettyprint(d, deque_formatter()) << endl; // >1,2,3>
   cout << prettyprint(d) << endl; // {1,2,3}
@@ -91,10 +96,19 @@ int main(int argc, char* argv[])
   cout << prettyprint(hw2) << endl; // "Hello, world!"
   cout << prettyprint(hw3) << endl; // "Hello, world!"
 
+  const char hw4[] = "Hello, world!";
+  cout << prettyprint(hw4) << endl; // "Hello, world!"
+
+  const char hw5[] = "";
+  cout << prettyprint(hw5) << endl; // ""
+
   cout << prettyprint("Hello, world!") << endl; // "Hello, world!"
+
   string hws("Hello, world!");
   cout << prettyprint(hws) << endl; // "Hello, world!"
   cout << prettyprint(std::move(hws)) << endl; // "Hello, world!"
+  const string hwsc("Hello, world!");
+  cout << prettyprint(hwsc) << endl; // "Hello, world!"
 
   cout << prettyprint(Foo()) << endl; // <class>
   cout << prettyprint(U()) << endl; // <union>
