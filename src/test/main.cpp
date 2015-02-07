@@ -1,6 +1,8 @@
 #include <array>
+#include <cassert>
 #include <deque>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 using namespace std;
@@ -29,7 +31,7 @@ void foobar()
 {
 }
 
-void foobarbind(int i, int j)
+void foobarbind(int, int)
 {
 }
 
@@ -61,70 +63,88 @@ struct deque_formatter : public default_formatter
   { return ">"; }
 };
 
-int main(int argc, char* argv[])
+#define TEST(decl, expected, ...)               \
+  do {                                          \
+    ostringstream oss;                          \
+    decl;                                       \
+    oss << prettyprint(__VA_ARGS__);            \
+    assert(oss.str() == expected);              \
+  } while (false)
+
+int main(int, char* [])
 {
-  const int x0[3] = {1,2,3};
-  int x1[3] = {1,2,3};
-  int x2[] = {};
-  int x3[] = {1,2,3};
-  int* x4 = x3;
-  cout << prettyprint(x0) << endl; // [1,2,3]
-  cout << prettyprint(x1) << endl; // [1,2,3]
-  cout << prettyprint(x2) << endl; // some pointer
-  cout << prettyprint(x3) << endl; // [1,2,3]
-  cout << prettyprint(x4) << endl; // some pointer
+  // zero-extent array
+  TEST(extern int x0[], "<array (unknown bounds)>", x0);
+  TEST(extern const int x1[], "<array (unknown bounds)>", x1);
 
-  array<int, 3> a{1,2,3};
-  cout << prettyprint(a) << endl; // [1,2,3]
-  vector<int> v{1,2,3};
-  cout << prettyprint(v) << endl; // [1,2,3]
-  deque<int> d{1,2,3};
-  cout << prettyprint(d, deque_formatter()) << endl; // >1,2,3>
-  cout << prettyprint(d) << endl; // {1,2,3}
+  // array with extents
+  TEST(int x[1] = {1}, "[1]", x);
+  TEST(const int x[2] = {1}, "[1,0]", x);
 
-  cout << prettyprint(true) << endl; // true
-  cout << prettyprint(BAR) << endl; // 1
-  cout << prettyprint(Garply::BAZ) << endl; // 2
-  cout << prettyprint(nullptr) << endl; // <nullptr>
+  // array without extents
+  TEST(int x[] = {1}, "[1]", x);
+  TEST(const int x[] = {1}, "[1]", x);
 
-  const char* hw = "Hello, world!";
-  cout << prettyprint(hw) << endl; // "Hello, world!"
-  cout << prettyprint(std::move(hw)) << endl; // "Hello, world!"
+  // std::array
+  array<int, 3> a{{1,2,3}};
+  TEST(a, "[1,2,3]", a);
 
-  char hw2[] = "Hello, world!";
-  char* hw3 = hw2;
-  cout << prettyprint(hw2) << endl; // "Hello, world!"
-  cout << prettyprint(hw3) << endl; // "Hello, world!"
+  // vector
+  TEST(vector<int> x{1}, "[1]", x);
 
-  const char hw4[] = "Hello, world!";
-  cout << prettyprint(hw4) << endl; // "Hello, world!"
+  // deque and custom formatter
+  TEST(deque<int> x{1}, "{1}", x);
+  TEST(deque<int> x{1}, ">1>", x, deque_formatter());
 
-  const char hw5[] = "";
-  cout << prettyprint(hw5) << endl; // ""
+  // bool
+  TEST(bool b = true, "true", b);
+  TEST(bool b = false, "false", b);
 
-  cout << prettyprint("Hello, world!") << endl; // "Hello, world!"
+  // enum and enum class
+  TEST(, "1", BAR);
+  TEST(, "2", Garply::BAZ);
 
-  string hws("Hello, world!");
-  cout << prettyprint(hws) << endl; // "Hello, world!"
-  cout << prettyprint(std::move(hws)) << endl; // "Hello, world!"
-  const string hwsc("Hello, world!");
-  cout << prettyprint(hwsc) << endl; // "Hello, world!"
+  // nullptr
+  TEST(, "<nullptr>", nullptr);
 
-  cout << prettyprint(Foo()) << endl; // <class>
-  cout << prettyprint(U()) << endl; // <union>
-  cout << prettyprint(make_pair(1,2)) << endl; // (1,2)
-  cout << prettyprint(make_tuple("Hello", 42)) << endl; // ("Hello", 42)
-  cout << prettyprint(Bar()) << endl; // <callable (function object)>
-  cout << prettyprint(Baz()) << endl; // Baz
+  // various char pointers
+  char hw[] = "Hello, world!";
+  TEST(char* x = hw, "\"Hello, world!\"", x);
+  TEST(const char* x = "Hello, world!", "\"Hello, world!\"", x);
+  TEST(char* const x = hw, "\"Hello, world!\"", x);
+  TEST(const char* const x = hw, "\"Hello, world!\"", x);
 
-  std::function<void()> f = [](){};
-  cout << prettyprint(f) << endl; // <callable (std::function)>
+  // char arrays and literals
+  TEST(char x[] = "Hello, world!", "\"Hello, world!\"", x);
+  TEST(const char x[] = "Hello, world!", "\"Hello, world!\"", x);
+  TEST(, "\"Hello, world!\"", "Hello, world!");
 
-  cout << prettyprint([](){}) << endl; // <callable (function object)>
-  cout << prettyprint(foobar) << endl; // <callable (function)>
+  // strings
+  TEST(string x = "Hello, world!", "\"Hello, world!\"", x);
+  TEST(const string x = "Hello, world!", "\"Hello, world!\"", x);
+  TEST(string x = "Hello, world!", "\"Hello, world!\"", std::move(x));
 
-  auto b = std::bind(&foobarbind, 1, placeholders::_1);
-  cout << prettyprint(b) << endl; // <callable (bind expression)>
+  // zero-extent char arrays
+  TEST(extern char c0[], "\"Hello, world!\"", c0);
+  TEST(extern const char c1[], "\"Hello, world!\"", c1);
+
+  // unprintable aggregates
+  TEST(, "<class>", Foo());
+  TEST(, "<union>", U());
+
+  // pairs and tuples
+  TEST(, "(1,2)", (make_pair(1,2)));
+  TEST(, "(\"Hello\",42)", (make_tuple("Hello",42)));
+
+  // object with operator<<
+  TEST(, "Baz", Baz());
+
+  // callables
+  TEST(, "<callable (function object)>", Bar());
+  TEST(std::function<void()> f = [](){}, "<callable (std::function)>", f);
+  TEST(, "<callable (function object)>", [](){});
+  TEST(, "<callable (function)>", foobar);
+  TEST(, "<callable (bind expression)>", (std::bind(&foobarbind, 1, placeholders::_1)));
 
   return 0;
 }

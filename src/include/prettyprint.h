@@ -82,7 +82,7 @@ namespace detail
 
   // ---------------------------------------------------------------------------
   // Is the type a callable of some kind?
-  SFINAE_DETECT(call_operator, &T::operator())
+  SFINAE_DETECT(call_operator, std::declval<T>()())
 
   template <typename T>
   struct is_std_function : public std::false_type {};
@@ -115,8 +115,10 @@ namespace detail
 
   template <typename T>
   constexpr static
-  std::enable_if_t<!is_std_function<T>::value && has_call_operator<T>::value,
-                   const char*>
+  std::enable_if_t<
+    !is_std_function<T>::value && !std::is_function<T>::value &&
+    !std::is_bind_expression<T>::value && has_call_operator<T>::value,
+    const char*>
     callable_type() { return "(function object)"; }
 
   // ---------------------------------------------------------------------------
@@ -428,6 +430,24 @@ struct stringifier_select<const char[N], F, detail::is_outputtable_tag>
   {}
 };
 
+template <typename F>
+struct stringifier_select<char[], F, detail::is_outputtable_tag>
+  : public stringifier_select<char*, F, detail::is_outputtable_tag>
+{
+  explicit stringifier_select(char t[], const F& f)
+    : stringifier_select<char*, F, detail::is_outputtable_tag>(t, f)
+  {}
+};
+
+template <typename F>
+struct stringifier_select<const char[], F, detail::is_outputtable_tag>
+  : public stringifier_select<char*, F, detail::is_outputtable_tag>
+{
+  explicit stringifier_select(const char t[], const F& f)
+    : stringifier_select<char*, F, detail::is_outputtable_tag>(t, f)
+  {}
+};
+
 // -----------------------------------------------------------------------------
 // Specialize for arrays
 namespace detail
@@ -443,9 +463,9 @@ namespace detail
     if (b != e)
       s << prettyprint(*b);
     std::for_each(++b, e,
-                  [&s, &t, &f] (auto& e)
+                  [&s, &t, &f] (auto& elem)
                   { s << f.separator(t)
-                      << prettyprint(e); });
+                      << prettyprint(elem); });
     return s << f.closer(t);
   }
 }
@@ -466,6 +486,18 @@ struct stringifier_select<T[N], F, detail::is_outputtable_tag>
 
   const S& m_t;
   const F& m_f;
+};
+
+template <typename T, typename F>
+struct stringifier_select<T[], F, detail::is_outputtable_tag>
+{
+  explicit stringifier_select(T[], F)
+  {}
+
+  std::ostream& output(std::ostream& s) const
+  {
+    return s << "<array (unknown bounds)>";
+  }
 };
 
 // -----------------------------------------------------------------------------
@@ -578,7 +610,7 @@ namespace detail
   inline void for_each_in_tuple(const std::tuple<Ts...>& t, F f,
                                 std::index_sequence<Is...>)
   {
-    (void)(int[]) { 0, (f(std::get<Is>(t), Is), 0)... };
+    auto a { 0, (f(std::get<Is>(t), Is), 0)... };
   }
 
   template <typename F, typename...Ts>
