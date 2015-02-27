@@ -461,11 +461,13 @@ namespace detail
     auto b = std::begin(t);
     auto e = std::end(t);
     if (b != e)
+    {
       s << prettyprint(*b);
-    std::for_each(++b, e,
-                  [&s, &t, &f] (auto& elem)
-                  { s << f.separator(t)
-                      << prettyprint(elem); });
+      std::for_each(++b, e,
+                    [&s, &t, &f] (auto& elem)
+                    { s << f.separator(t)
+                        << prettyprint(elem); });
+    }
     return s << f.closer(t);
   }
 }

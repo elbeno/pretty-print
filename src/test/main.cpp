@@ -91,6 +91,7 @@ int main(int, char* [])
 
   // vector
   TEST(vector<int> x{1}, "[1]", x);
+  TEST(vector<int> x{}, "[]", x);
 
   // deque and custom formatter
   TEST(deque<int> x{1}, "{1}", x);
