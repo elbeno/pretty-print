@@ -156,7 +156,7 @@ namespace detail
   struct is_unprintable_tag {};
 
   template <typename T>
-  constexpr static std::enable_if_t<is_union<T>::value, const char*>
+  constexpr static std::enable_if_t<std::is_union<T>::value, const char*>
   unprintable_type() { return "<union>"; }
 
   template <typename T>
@@ -530,7 +530,7 @@ struct stringifier_select<T, F, detail::is_iterable_tag>
 
   std::ostream& output(std::ostream& s) const
   {
-    return detail::output_iterable<decay_t<T>, F>(s, m_t, m_f);
+    return detail::output_iterable<std::decay_t<T>, F>(s, m_t, m_f);
   }
 
   const T& m_t;
