@@ -93,6 +93,13 @@ int main(int, char* [])
   TEST(vector<int> x{1}, "[1]", x);
   TEST(vector<int> x{}, "[]", x);
 
+  // vector<bool>
+  // libc++ doesn't have vector<bool>::const_reference == bool
+  #ifndef _LIBCPP_VERSION
+  vector<bool> vb{{true,false}};
+  TEST(vb, "[true,false]", vb);
+  #endif
+
   // deque and custom formatter
   TEST(deque<int> x{1}, "{1}", x);
   TEST(deque<int> x{1}, ">1>", x, deque_formatter());
