@@ -152,7 +152,7 @@ int main(int, char* [])
   TEST(std::function<void()> f = [](){}, "<callable (std::function)>", f);
   TEST(, "<callable (function object)>", [](){});
   TEST(, "<callable (function)>", foobar);
-  TEST(, "<callable (bind expression)>", (std::bind(&foobarbind, 1, placeholders::_1)));
+  TEST(, "<callable (bind expression)>", std::bind(&foobarbind, 1, placeholders::_1));
 
   return 0;
 }
